@@ -214,7 +214,7 @@ class RootViewController: UIViewController {
     
     @objc private func loginWithTikTok() {
         
-        let url = URL(string: "https://8e04-69-212-112-109.ngrok-free.app/auth/tiktok")!
+        let url = URL(string: "https://5152-69-212-112-109.ngrok-free.app/auth/tiktok")!
                 var request = URLRequest(url: url)
                 request.httpMethod = "GET"
                 
@@ -272,7 +272,7 @@ class OAuthWebViewController: UIViewController, WKNavigationDelegate {
     }
     
     func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction, decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
-        if let url = navigationAction.request.url, url.absoluteString.hasPrefix("https://8e04-69-212-112-109.ngrok-free.app/auth/tiktok/callback") {
+        if let url = navigationAction.request.url, url.absoluteString.hasPrefix("https://5152-69-212-112-109.ngrok-free.app/auth/tiktok/callback") {
             if let code = URLComponents(string: url.absoluteString)?.queryItems?.first(where: { $0.name == "code" })?.value {
                 fetchAccessToken(with: code)
 //                print("Authorization Code: \(code)")
@@ -317,7 +317,7 @@ class OAuthWebViewController: UIViewController, WKNavigationDelegate {
     }
     
     private func fetchAccessToken(with code: String) {
-        let url = URL(string: "https://8e04-69-212-112-109.ngrok-free.app/auth/tiktok/callback?code=\(code)")!
+        let url = URL(string: "https://5152-69-212-112-109.ngrok-free.app/auth/tiktok/callback?code=\(code)")!
         var request = URLRequest(url: url)
         request.httpMethod = "GET"
         
