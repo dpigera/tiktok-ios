@@ -6,11 +6,13 @@ class ViewController: UIViewController {
     private var profileImageView: UIImageView!
     private var unionIdLabel: UILabel!
     private var displayNameLabel: UILabel!
+    private var logoutButton: UIButton!
 
     override func viewDidLoad() {
         super.viewDidLoad()
         setupLoginButton()
         setupProfileViews()
+        setupLogoutButton()
     }
     
     private func setupProfileViews() {
@@ -44,6 +46,39 @@ class ViewController: UIViewController {
         ])
     }
     
+    private func setupLogoutButton() {
+        logoutButton = UIButton(type: .system)
+        logoutButton.setTitle("Logout", for: .normal)
+        logoutButton.addTarget(self, action: #selector(logout), for: .touchUpInside)
+        
+        logoutButton.translatesAutoresizingMaskIntoConstraints = false
+        logoutButton.isHidden = true
+        view.addSubview(logoutButton)
+        
+        NSLayoutConstraint.activate([
+            logoutButton.centerXAnchor.constraint(equalTo: view.centerXAnchor),
+            logoutButton.topAnchor.constraint(equalTo: displayNameLabel.bottomAnchor, constant: 20)
+        ])
+    }
+    
+    @objc private func logout() {
+        UserDefaults.standard.removeObject(forKey: "TikTokAccessToken")
+        UserDefaults.standard.removeObject(forKey: "TikTokUserProfile")
+        profileImageView.isHidden = true
+        unionIdLabel.isHidden = true
+        displayNameLabel.isHidden = true
+        logoutButton.isHidden = true
+        loginButton.isHidden = false
+        
+        // Clear WebView cache and cookies
+        let websiteDataTypes = Set([WKWebsiteDataTypeCookies, WKWebsiteDataTypeLocalStorage, WKWebsiteDataTypeSessionStorage])
+        let dateFrom = Date(timeIntervalSince1970: 0)
+
+        WKWebsiteDataStore.default().removeData(ofTypes: websiteDataTypes, modifiedSince: dateFrom) {
+            print("Cleared OAuth session data")
+        }
+    }
+    
     func updateUI(with userData: [String: Any]) {
         DispatchQueue.main.async {
             self.loginButton.isHidden = true
@@ -62,6 +97,8 @@ class ViewController: UIViewController {
             
             self.displayNameLabel.text = "Name: \(userData["display_name"] as? String ?? "N/A")"
             self.displayNameLabel.isHidden = false
+            
+            self.logoutButton.isHidden = false
         }
     }
     
