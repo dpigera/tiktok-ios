@@ -1,7 +1,7 @@
 import UIKit
 import WebKit
 
-class ViewController: UIViewController {
+class RootViewController: UIViewController {
     private var loginButton: UIButton!
     private var profileImageView: UIImageView!
     private var unionIdLabel: UILabel!
@@ -10,6 +10,8 @@ class ViewController: UIViewController {
 
     override func viewDidLoad() {
         super.viewDidLoad()
+        self.title = "Sign In"
+        self.view.backgroundColor = .white
         setupLoginButton()
         setupProfileViews()
         setupLogoutButton()
@@ -49,7 +51,17 @@ class ViewController: UIViewController {
     private func setupLogoutButton() {
         logoutButton = UIButton(type: .system)
         logoutButton.setTitle("Logout", for: .normal)
+        logoutButton.setTitleColor(.black, for: .normal)
+        logoutButton.titleLabel?.font = UIFont.systemFont(ofSize: 18, weight: .semibold)
         logoutButton.addTarget(self, action: #selector(logout), for: .touchUpInside)
+        
+        // Set border and rounded corners
+        logoutButton.layer.borderWidth = 2
+        logoutButton.layer.borderColor = UIColor.black.cgColor
+        logoutButton.layer.cornerRadius = 10
+        
+        // Add padding
+        logoutButton.contentEdgeInsets = UIEdgeInsets(top: 10, left: 20, bottom: 10, right: 20)
         
         logoutButton.translatesAutoresizingMaskIntoConstraints = false
         logoutButton.isHidden = true
@@ -93,7 +105,7 @@ class ViewController: UIViewController {
                 }
             }
             self.unionIdLabel.text = "ID: \(userData["open_id"] as? String ?? "N/A")"
-            self.unionIdLabel.isHidden = false
+            self.unionIdLabel.isHidden = true
             
             self.displayNameLabel.text = "Name: \(userData["display_name"] as? String ?? "N/A")"
             self.displayNameLabel.isHidden = false
@@ -105,14 +117,43 @@ class ViewController: UIViewController {
     private func setupLoginButton() {
         loginButton = UIButton(type: .system)
         loginButton.setTitle("Login with TikTok", for: .normal)
+        loginButton.setTitleColor(.black, for: .normal)
+        loginButton.titleLabel?.font = UIFont.systemFont(ofSize: 18, weight: .semibold)
         loginButton.addTarget(self, action: #selector(loginWithTikTok), for: .touchUpInside)
         
+        // Set border and rounded corners
+        loginButton.layer.borderWidth = 2
+        loginButton.layer.borderColor = UIColor.black.cgColor
+        loginButton.layer.cornerRadius = 10
+        
+        // Add padding
+        loginButton.contentEdgeInsets = UIEdgeInsets(top: 10, left: 20, bottom: 10, right: 50)
+        
+        // Add TikTok icon
+        let tiktokIcon = UIImageView(image: UIImage(systemName: "play.fill")) // Replace with actual TikTok logo
+        tiktokIcon.tintColor = .black
+        tiktokIcon.contentMode = .scaleAspectFit
+        tiktokIcon.translatesAutoresizingMaskIntoConstraints = false
+        loginButton.addSubview(tiktokIcon)
+        
+        // Position icon to the right inside the button
+        NSLayoutConstraint.activate([
+            tiktokIcon.centerYAnchor.constraint(equalTo: loginButton.centerYAnchor),
+            tiktokIcon.trailingAnchor.constraint(equalTo: loginButton.trailingAnchor, constant: -15),
+            tiktokIcon.widthAnchor.constraint(equalToConstant: 20),
+            tiktokIcon.heightAnchor.constraint(equalToConstant: 20)
+        ])
+        
+        // Add button to the view
         loginButton.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(loginButton)
         
+        // Center button
         NSLayoutConstraint.activate([
             loginButton.centerXAnchor.constraint(equalTo: view.centerXAnchor),
-            loginButton.centerYAnchor.constraint(equalTo: view.centerYAnchor)
+            loginButton.centerYAnchor.constraint(equalTo: view.centerYAnchor),
+            loginButton.widthAnchor.constraint(equalToConstant: 250),
+            loginButton.heightAnchor.constraint(equalToConstant: 50)
         ])
     }
     
@@ -148,9 +189,9 @@ class ViewController: UIViewController {
 class OAuthWebViewController: UIViewController, WKNavigationDelegate {
     private var webView: WKWebView!
     private var authURL: URL
-    private var viewController: ViewController
+    private var viewController: RootViewController
     
-    init(url: URL, viewController: ViewController) {
+    init(url: URL, viewController: RootViewController) {
         self.authURL = url
         self.viewController = viewController
         super.init(nibName: nil, bundle: nil)
