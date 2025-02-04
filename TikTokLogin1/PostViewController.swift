@@ -11,6 +11,8 @@ class PostViewController: UIViewController, UIImagePickerControllerDelegate, UIN
     private var playerLayer: AVPlayerLayer?
     private var playButton: UIButton!
     private var stopButton: UIButton!
+    private var uploadButton: UIButton!
+    private var selectedVideoURL: URL?
 
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -62,16 +64,31 @@ class PostViewController: UIViewController, UIImagePickerControllerDelegate, UIN
         stopButton.isHidden = true
         view.addSubview(stopButton)
 
+        uploadButton = UIButton(type: .system)
+        uploadButton.setTitle("Upload", for: .normal)
+        uploadButton.setTitleColor(.white, for: .normal)
+        uploadButton.backgroundColor = .systemGreen
+        uploadButton.layer.cornerRadius = 10
+        uploadButton.addTarget(self, action: #selector(uploadVideo), for: .touchUpInside)
+        uploadButton.translatesAutoresizingMaskIntoConstraints = false
+        uploadButton.isHidden = true
+        view.addSubview(uploadButton)
+
         NSLayoutConstraint.activate([
-            playButton.centerXAnchor.constraint(equalTo: view.centerXAnchor, constant: -60),
+            playButton.centerXAnchor.constraint(equalTo: view.centerXAnchor, constant: -120),
             playButton.topAnchor.constraint(equalTo: videoPreviewView.bottomAnchor, constant: 20),
             playButton.widthAnchor.constraint(equalToConstant: 100),
             playButton.heightAnchor.constraint(equalToConstant: 40),
 
-            stopButton.centerXAnchor.constraint(equalTo: view.centerXAnchor, constant: 60),
+            stopButton.centerXAnchor.constraint(equalTo: view.centerXAnchor),
             stopButton.topAnchor.constraint(equalTo: videoPreviewView.bottomAnchor, constant: 20),
             stopButton.widthAnchor.constraint(equalToConstant: 100),
-            stopButton.heightAnchor.constraint(equalToConstant: 40)
+            stopButton.heightAnchor.constraint(equalToConstant: 40),
+
+            uploadButton.centerXAnchor.constraint(equalTo: view.centerXAnchor, constant: 120),
+            uploadButton.topAnchor.constraint(equalTo: videoPreviewView.bottomAnchor, constant: 20),
+            uploadButton.widthAnchor.constraint(equalToConstant: 100),
+            uploadButton.heightAnchor.constraint(equalToConstant: 40)
         ])
     }
     
@@ -116,6 +133,7 @@ class PostViewController: UIViewController, UIImagePickerControllerDelegate, UIN
     // UIImagePickerController Delegate: Handles selected video
     func imagePickerController(_ picker: UIImagePickerController, didFinishPickingMediaWithInfo info: [UIImagePickerController.InfoKey: Any]) {
         if let videoURL = info[.mediaURL] as? URL {
+            self.selectedVideoURL = videoURL // Store the selected video URL
             setupVideoPlayer(with: videoURL)
         }
         picker.dismiss(animated: true, completion: nil)
@@ -159,6 +177,7 @@ class PostViewController: UIViewController, UIImagePickerControllerDelegate, UIN
         videoPreviewView.isHidden = false
         playButton.isHidden = false
         stopButton.isHidden = false
+        uploadButton.isHidden = false
         
         // Force layout update
         view.layoutIfNeeded()
@@ -180,6 +199,102 @@ class PostViewController: UIViewController, UIImagePickerControllerDelegate, UIN
         player?.seek(to: CMTime.zero) // Reset to the beginning
     }
 
+    @objc private func uploadVideo() {
+        guard let videoURL = selectedVideoURL else {
+            showAlert(message: "No video selected")
+            return
+        }
+        
+        // Show loading indicator
+        let loadingIndicator = UIActivityIndicatorView(style: .large)
+        loadingIndicator.center = view.center
+        loadingIndicator.startAnimating()
+        view.addSubview(loadingIndicator)
+        uploadButton.isEnabled = false
+        
+        // Step 1: Get the S3 upload URL
+        let urlString = "https://5152-69-212-112-109.ngrok-free.app/s3url"
+        guard let url = URL(string: urlString) else {
+            showAlert(message: "Invalid URL")
+            return
+        }
+        
+        let task = URLSession.shared.dataTask(with: url) { [weak self] (data, response, error) in
+            guard let self = self else { return }
+            
+            DispatchQueue.main.async {
+                if let error = error {
+                    loadingIndicator.removeFromSuperview()
+                    self.uploadButton.isEnabled = true
+                    self.showAlert(message: "Failed to get upload URL: \(error.localizedDescription)")
+                    return
+                }
+                
+                guard let data = data,
+                      let s3Response = try? JSONDecoder().decode(S3UploadResponse.self, from: data) else {
+                    loadingIndicator.removeFromSuperview()
+                    self.uploadButton.isEnabled = true
+                    self.showAlert(message: "Failed to parse response")
+                    return
+                }
+                
+                // Step 2: Upload the video to S3
+                self.uploadToS3(videoURL: videoURL, uploadURL: s3Response.uploadURL) { result in
+                    DispatchQueue.main.async {
+                        loadingIndicator.removeFromSuperview()
+                        self.uploadButton.isEnabled = true
+                        
+                        switch result {
+                        case .success(let publicURL):
+                            self.showAlert(message: "Upload successful!\nPublic URL: \(publicURL)")
+                        case .failure(let error):
+                            self.showAlert(message: "Upload failed: \(error.localizedDescription)")
+                        }
+                    }
+                }
+            }
+        }
+        task.resume()
+    }
+    
+    private func uploadToS3(videoURL: URL, uploadURL: String, completion: @escaping (Result<String, Error>) -> Void) {
+        guard let url = URL(string: uploadURL) else {
+            completion(.failure(NSError(domain: "", code: -1, userInfo: [NSLocalizedDescriptionKey: "Invalid upload URL"])))
+            return
+        }
+        
+        do {
+            let videoData = try Data(contentsOf: videoURL)
+            
+            var request = URLRequest(url: url)
+            request.httpMethod = "PUT"
+            request.setValue("video/mp4", forHTTPHeaderField: "Content-Type")
+            
+            let task = URLSession.shared.uploadTask(with: request, from: videoData) { (data, response, error) in
+                if let error = error {
+                    completion(.failure(error))
+                    return
+                }
+                
+                if let publicURL = uploadURL.components(separatedBy: "?").first {
+                    completion(.success(publicURL))
+                } else {
+                    completion(.failure(NSError(domain: "", code: -1, userInfo: [NSLocalizedDescriptionKey: "Failed to generate public URL"])))
+                }
+            }
+            task.resume()
+            
+        } catch {
+            completion(.failure(error))
+        }
+    }
+    
+    private func showAlert(message: String) {
+        let alert = UIAlertController(title: nil, message: message, preferredStyle: .alert)
+        alert.addAction(UIAlertAction(title: "OK", style: .default))
+        present(alert, animated: true)
+    }
+
     // Add this method to handle bounds changes
     override func observeValue(forKeyPath keyPath: String?, of object: Any?, change: [NSKeyValueChangeKey : Any]?, context: UnsafeMutableRawPointer?) {
         if keyPath == "bounds" {
@@ -189,5 +304,14 @@ class PostViewController: UIViewController, UIImagePickerControllerDelegate, UIN
 
     deinit {
         videoPreviewView?.removeObserver(self, forKeyPath: "bounds")
+    }
+}
+
+// Response model for S3 URL endpoint
+struct S3UploadResponse: Decodable {
+    let uploadURL: String
+    
+    enum CodingKeys: String, CodingKey {
+        case uploadURL = "uploadURL"
     }
 }
