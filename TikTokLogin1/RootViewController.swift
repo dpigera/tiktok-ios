@@ -80,7 +80,7 @@ class RootViewController: UIViewController {
         postButton.setTitle("Post Reel", for: .normal)
         postButton.setTitleColor(.black, for: .normal)
         postButton.titleLabel?.font = UIFont.systemFont(ofSize: 18, weight: .semibold)
-        postButton.addTarget(self, action: #selector(logout), for: .touchUpInside)
+        postButton.addTarget(self, action: #selector(postReel), for: .touchUpInside)
         
         // Set border and rounded corners
         postButton.layer.borderWidth = 2
@@ -101,6 +101,12 @@ class RootViewController: UIViewController {
             postButton.heightAnchor.constraint(equalTo: logoutButton.heightAnchor)
         ])
         
+    }
+    
+    @objc private func postReel() {
+        print("Post Reel button tapped!") // Replace with your actual functionality
+        let postVC = PostViewController()
+        navigationController?.pushViewController(postVC, animated: true)
     }
     
     @objc private func logout() {
