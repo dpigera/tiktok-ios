@@ -17,6 +17,23 @@ class RootViewController: UIViewController {
         setupProfileViews()
         setupLogoutButton()
         setupPostButton()
+        
+        // Check if TikTok user profile and access token exist
+        if let userProfile = UserDefaults.standard.dictionary(forKey: "TikTokUserProfile"),
+           let _ = UserDefaults.standard.string(forKey: "TikTokAccessToken") {
+            updateUI(with: userProfile)  // Show user profile, logout, and post-reel buttons
+        } else {
+            showLoginButton() // Show only login button
+        }
+    }
+    
+    private func showLoginButton() {
+        loginButton.isHidden = false
+        profileImageView.isHidden = true
+        unionIdLabel.isHidden = true
+        displayNameLabel.isHidden = true
+        logoutButton.isHidden = true
+        postButton.isHidden = true
     }
     
     private func setupProfileViews() {
@@ -117,6 +134,7 @@ class RootViewController: UIViewController {
         displayNameLabel.isHidden = true
         logoutButton.isHidden = true
         loginButton.isHidden = false
+        postButton.isHidden = true
         
         // Clear WebView cache and cookies
         let websiteDataTypes = Set([WKWebsiteDataTypeCookies, WKWebsiteDataTypeLocalStorage, WKWebsiteDataTypeSessionStorage])
