@@ -7,6 +7,7 @@ class RootViewController: UIViewController {
     private var unionIdLabel: UILabel!
     private var displayNameLabel: UILabel!
     private var logoutButton: UIButton!
+    private var postButton: UIButton!
 
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -15,6 +16,7 @@ class RootViewController: UIViewController {
         setupLoginButton()
         setupProfileViews()
         setupLogoutButton()
+        setupPostButton()
     }
     
     private func setupProfileViews() {
@@ -73,6 +75,34 @@ class RootViewController: UIViewController {
         ])
     }
     
+    private func setupPostButton() {
+        postButton = UIButton(type: .system)
+        postButton.setTitle("Post Reel", for: .normal)
+        postButton.setTitleColor(.black, for: .normal)
+        postButton.titleLabel?.font = UIFont.systemFont(ofSize: 18, weight: .semibold)
+        postButton.addTarget(self, action: #selector(logout), for: .touchUpInside)
+        
+        // Set border and rounded corners
+        postButton.layer.borderWidth = 2
+        postButton.layer.borderColor = UIColor.black.cgColor
+        postButton.layer.cornerRadius = 10
+        
+        // Add padding
+        postButton.contentEdgeInsets = UIEdgeInsets(top: 10, left: 20, bottom: 10, right: 20)
+        
+        postButton.translatesAutoresizingMaskIntoConstraints = false
+        postButton.isHidden = true
+        view.addSubview(postButton)
+        
+        NSLayoutConstraint.activate([
+            postButton.centerXAnchor.constraint(equalTo: view.centerXAnchor),
+            postButton.topAnchor.constraint(equalTo: logoutButton.bottomAnchor, constant: 15), // Spacing of 15
+            postButton.widthAnchor.constraint(equalTo: logoutButton.widthAnchor),
+            postButton.heightAnchor.constraint(equalTo: logoutButton.heightAnchor)
+        ])
+        
+    }
+    
     @objc private func logout() {
         UserDefaults.standard.removeObject(forKey: "TikTokAccessToken")
         UserDefaults.standard.removeObject(forKey: "TikTokUserProfile")
@@ -111,6 +141,7 @@ class RootViewController: UIViewController {
             self.displayNameLabel.isHidden = false
             
             self.logoutButton.isHidden = false
+            self.postButton.isHidden = false
         }
     }
     
