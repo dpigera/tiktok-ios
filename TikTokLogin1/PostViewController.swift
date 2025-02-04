@@ -1,10 +1,16 @@
 import UIKit
 import WebKit
 import PhotosUI
+import AVKit
+import MobileCoreServices
 
 class PostViewController: UIViewController, UIImagePickerControllerDelegate, UINavigationControllerDelegate {
     private var chooseFileButton: UIButton!
-    private var selectedImageView: UIImageView!
+    private var videoPreviewView: UIView!
+    private var player: AVPlayer?
+    private var playerLayer: AVPlayerLayer?
+    private var playButton: UIButton!
+    private var stopButton: UIButton!
 
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -17,21 +23,56 @@ class PostViewController: UIViewController, UIImagePickerControllerDelegate, UIN
         navigationController?.navigationBar.tintColor = .black
      
         setupChooseFileButton()
-        setupSelectedImageView()
+        setupVideoPreview()
+        setupPlaybackButtons()
     }
     
-    private func setupSelectedImageView() {
-        selectedImageView = UIImageView()
-        selectedImageView.contentMode = .scaleAspectFit
-        selectedImageView.translatesAutoresizingMaskIntoConstraints = false
-        selectedImageView.isHidden = true
-        view.addSubview(selectedImageView)
+    private func setupVideoPreview() {
+        videoPreviewView = UIView()
+        videoPreviewView.backgroundColor = .black
+        videoPreviewView.translatesAutoresizingMaskIntoConstraints = false
+        videoPreviewView.isHidden = true
+        view.addSubview(videoPreviewView)
+        
+        NSLayoutConstraint.activate([
+            videoPreviewView.centerXAnchor.constraint(equalTo: view.centerXAnchor),
+            videoPreviewView.topAnchor.constraint(equalTo: chooseFileButton.bottomAnchor, constant: 20),
+            videoPreviewView.widthAnchor.constraint(equalToConstant: 300),
+            videoPreviewView.heightAnchor.constraint(equalToConstant: 200)
+        ])
+    }
+    
+    private func setupPlaybackButtons() {
+        playButton = UIButton(type: .system)
+        playButton.setTitle("Play", for: .normal)
+        playButton.setTitleColor(.white, for: .normal)
+        playButton.backgroundColor = .black
+        playButton.layer.cornerRadius = 10
+        playButton.addTarget(self, action: #selector(playVideo), for: .touchUpInside)
+        playButton.translatesAutoresizingMaskIntoConstraints = false
+        playButton.isHidden = true
+        view.addSubview(playButton)
+
+        stopButton = UIButton(type: .system)
+        stopButton.setTitle("Stop", for: .normal)
+        stopButton.setTitleColor(.white, for: .normal)
+        stopButton.backgroundColor = .red
+        stopButton.layer.cornerRadius = 10
+        stopButton.addTarget(self, action: #selector(stopVideo), for: .touchUpInside)
+        stopButton.translatesAutoresizingMaskIntoConstraints = false
+        stopButton.isHidden = true
+        view.addSubview(stopButton)
 
         NSLayoutConstraint.activate([
-            selectedImageView.centerXAnchor.constraint(equalTo: view.centerXAnchor),
-            selectedImageView.topAnchor.constraint(equalTo: chooseFileButton.bottomAnchor, constant: 20),
-            selectedImageView.widthAnchor.constraint(equalToConstant: 200),
-            selectedImageView.heightAnchor.constraint(equalToConstant: 200)
+            playButton.centerXAnchor.constraint(equalTo: view.centerXAnchor, constant: -60),
+            playButton.topAnchor.constraint(equalTo: videoPreviewView.bottomAnchor, constant: 20),
+            playButton.widthAnchor.constraint(equalToConstant: 100),
+            playButton.heightAnchor.constraint(equalToConstant: 40),
+
+            stopButton.centerXAnchor.constraint(equalTo: view.centerXAnchor, constant: 60),
+            stopButton.topAnchor.constraint(equalTo: videoPreviewView.bottomAnchor, constant: 20),
+            stopButton.widthAnchor.constraint(equalToConstant: 100),
+            stopButton.heightAnchor.constraint(equalToConstant: 40)
         ])
     }
     
@@ -61,33 +102,46 @@ class PostViewController: UIViewController, UIImagePickerControllerDelegate, UIN
     }
 
     @objc private func chooseFileTapped() {
-        print("Choose From Library button tapped!")
         let imagePicker = UIImagePickerController()
         imagePicker.sourceType = .photoLibrary
+        imagePicker.mediaTypes = [UTType.movie.identifier] // Allow video selection
         imagePicker.delegate = self
-        imagePicker.allowsEditing = true // Allows cropping before selecting
+        imagePicker.allowsEditing = false
         present(imagePicker, animated: true, completion: nil)
-        // You can later add UIImagePickerController or a file picker here
     }
     
     @objc private func backTapped() {
         navigationController?.popViewController(animated: true)
     }
     
-    // UIImagePickerController Delegate: Handles selected image
-    func imagePickerController(_ picker: UIImagePickerController, didFinishPickingMediaWithInfo info: [UIImagePickerController.InfoKey: Any]) {
-        if let selectedImage = info[.editedImage] as? UIImage {
-            selectedImageView.image = selectedImage
-        } else if let originalImage = info[.originalImage] as? UIImage {
-            selectedImageView.image = originalImage
+    // UIImagePickerController Delegate: Handles selected video
+        func imagePickerController(_ picker: UIImagePickerController, didFinishPickingMediaWithInfo info: [UIImagePickerController.InfoKey: Any]) {
+            if let videoURL = info[.mediaURL] as? URL {
+                setupVideoPlayer(with: videoURL)
+            }
+            picker.dismiss(animated: true, completion: nil)
         }
         
-        selectedImageView.isHidden = false
-        picker.dismiss(animated: true, completion: nil)
-    }
-    
-    // UIImagePickerController Delegate: Handles cancel
-    func imagePickerControllerDidCancel(_ picker: UIImagePickerController) {
-        picker.dismiss(animated: true, completion: nil)
-    }
+        private func setupVideoPlayer(with url: URL) {
+            player = AVPlayer(url: url)
+            playerLayer?.removeFromSuperlayer() // Remove previous player if exists
+
+            playerLayer = AVPlayerLayer(player: player)
+            playerLayer?.frame = videoPreviewView.bounds
+            playerLayer?.videoGravity = .resizeAspectFill
+            videoPreviewView.layer.addSublayer(playerLayer!)
+
+            videoPreviewView.isHidden = false
+            playButton.isHidden = false
+            stopButton.isHidden = false
+        }
+
+        @objc private func playVideo() {
+            player?.play()
+        }
+
+        @objc private func stopVideo() {
+            player?.pause()
+            player?.seek(to: CMTime.zero) // Reset to the beginning
+        }
 }
