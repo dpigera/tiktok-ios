@@ -167,6 +167,11 @@ class OAuthWebViewController: UIViewController, WKNavigationDelegate {
                 if let json = try JSONSerialization.jsonObject(with: data, options: []) as? [String: Any],
                    let userData = json["data"] as? [String: Any] {
                     DispatchQueue.main.async {
+                        // save user_profile to user defaults
+                        UserDefaults.standard.set(userData["user"], forKey: "TikTokUserProfile")
+                        UserDefaults.standard.synchronize()
+                        
+                        
                         self.viewController.updateUI(with: userData["user"] as! [String : Any])
                         self.dismiss(animated: true, completion: nil)
                     }
@@ -192,6 +197,11 @@ class OAuthWebViewController: UIViewController, WKNavigationDelegate {
             do {
                 if let json = try JSONSerialization.jsonObject(with: data, options: []) as? [String: Any] {
                     let accessToken = json["access_token"] as! String
+                    
+                    // save access token to user defaults
+                    UserDefaults.standard.set(accessToken, forKey: "TikTokAccessToken")
+                    UserDefaults.standard.synchronize()
+                    
                     self.fetchUserProfile(with: accessToken)
                     
                     // fetch user infow
