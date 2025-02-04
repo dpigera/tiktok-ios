@@ -57,7 +57,7 @@ class ViewController: UIViewController {
                     }
                 }
             }
-            self.unionIdLabel.text = "Union ID: \(userData["union_id"] as? String ?? "N/A")"
+            self.unionIdLabel.text = "ID: \(userData["open_id"] as? String ?? "N/A")"
             self.unionIdLabel.isHidden = false
             
             self.displayNameLabel.text = "Name: \(userData["display_name"] as? String ?? "N/A")"
