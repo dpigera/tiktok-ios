@@ -37,8 +37,7 @@ class PostViewController: UIViewController, UIImagePickerControllerDelegate, UIN
         NSLayoutConstraint.activate([
             videoPreviewView.centerXAnchor.constraint(equalTo: view.centerXAnchor),
             videoPreviewView.topAnchor.constraint(equalTo: chooseFileButton.bottomAnchor, constant: 20),
-            videoPreviewView.widthAnchor.constraint(equalToConstant: 300),
-            videoPreviewView.heightAnchor.constraint(equalToConstant: 200)
+            videoPreviewView.widthAnchor.constraint(equalToConstant: 300)
         ])
     }
     
@@ -115,33 +114,80 @@ class PostViewController: UIViewController, UIImagePickerControllerDelegate, UIN
     }
     
     // UIImagePickerController Delegate: Handles selected video
-        func imagePickerController(_ picker: UIImagePickerController, didFinishPickingMediaWithInfo info: [UIImagePickerController.InfoKey: Any]) {
-            if let videoURL = info[.mediaURL] as? URL {
-                setupVideoPlayer(with: videoURL)
+    func imagePickerController(_ picker: UIImagePickerController, didFinishPickingMediaWithInfo info: [UIImagePickerController.InfoKey: Any]) {
+        if let videoURL = info[.mediaURL] as? URL {
+            setupVideoPlayer(with: videoURL)
+        }
+        picker.dismiss(animated: true, completion: nil)
+    }
+    
+    private func setupVideoPlayer(with url: URL) {
+        // Get video dimensions
+        let asset = AVAsset(url: url)
+        let tracks = asset.tracks(withMediaType: .video)
+        if let videoTrack = tracks.first {
+            let size = videoTrack.naturalSize
+            let transform = videoTrack.preferredTransform
+            
+            // Apply transform to handle video orientation
+            let videoRect = CGRect(origin: .zero, size: size).applying(transform)
+            let videoWidth: CGFloat = abs(videoRect.width)
+            let videoHeight: CGFloat = abs(videoRect.height)
+            
+            // Calculate aspect ratio and update preview height
+            let aspectRatio = videoHeight / videoWidth
+            let previewWidth: CGFloat = 300 // Match the width constraint we set
+            let previewHeight = previewWidth * aspectRatio
+            
+            // Update videoPreviewView constraints
+            videoPreviewView.constraints.forEach { constraint in
+                if constraint.firstAttribute == .height {
+                    constraint.isActive = false
+                }
             }
-            picker.dismiss(animated: true, completion: nil)
+            
+            videoPreviewView.heightAnchor.constraint(equalToConstant: previewHeight).isActive = true
         }
         
-        private func setupVideoPlayer(with url: URL) {
-            player = AVPlayer(url: url)
-            playerLayer?.removeFromSuperlayer() // Remove previous player if exists
+        player = AVPlayer(url: url)
+        playerLayer?.removeFromSuperlayer() // Remove previous player if exists
+        
+        playerLayer = AVPlayerLayer(player: player)
+        playerLayer?.videoGravity = .resizeAspectFill
+        
+        // Show the views
+        videoPreviewView.isHidden = false
+        playButton.isHidden = false
+        stopButton.isHidden = false
+        
+        // Force layout update
+        view.layoutIfNeeded()
+        
+        // Update player layer frame after layout
+        playerLayer?.frame = videoPreviewView.bounds
+        videoPreviewView.layer.addSublayer(playerLayer!)
+        
+        // Add observer for layout changes
+        videoPreviewView.addObserver(self, forKeyPath: "bounds", options: [.new], context: nil)
+    }
 
-            playerLayer = AVPlayerLayer(player: player)
+    @objc private func playVideo() {
+        player?.play()
+    }
+
+    @objc private func stopVideo() {
+        player?.pause()
+        player?.seek(to: CMTime.zero) // Reset to the beginning
+    }
+
+    // Add this method to handle bounds changes
+    override func observeValue(forKeyPath keyPath: String?, of object: Any?, change: [NSKeyValueChangeKey : Any]?, context: UnsafeMutableRawPointer?) {
+        if keyPath == "bounds" {
             playerLayer?.frame = videoPreviewView.bounds
-            playerLayer?.videoGravity = .resizeAspectFill
-            videoPreviewView.layer.addSublayer(playerLayer!)
-
-            videoPreviewView.isHidden = false
-            playButton.isHidden = false
-            stopButton.isHidden = false
         }
+    }
 
-        @objc private func playVideo() {
-            player?.play()
-        }
-
-        @objc private func stopVideo() {
-            player?.pause()
-            player?.seek(to: CMTime.zero) // Reset to the beginning
-        }
+    deinit {
+        videoPreviewView?.removeObserver(self, forKeyPath: "bounds")
+    }
 }
