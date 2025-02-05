@@ -13,6 +13,7 @@ class PostViewController: UIViewController, UIImagePickerControllerDelegate, UIN
     private var stopButton: UIButton!
     private var uploadButton: UIButton!
     private var selectedVideoURL: URL?
+    private var loadingIndicator: UIActivityIndicatorView!
 
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -73,6 +74,19 @@ class PostViewController: UIViewController, UIImagePickerControllerDelegate, UIN
         uploadButton.translatesAutoresizingMaskIntoConstraints = false
         uploadButton.isHidden = true
         view.addSubview(uploadButton)
+
+        // Create and configure loading indicator
+        loadingIndicator = UIActivityIndicatorView(style: .medium)
+        loadingIndicator.color = .white
+        loadingIndicator.hidesWhenStopped = true
+        uploadButton.addSubview(loadingIndicator)
+        
+        // Center the loading indicator in the upload button
+        loadingIndicator.translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([
+            loadingIndicator.centerYAnchor.constraint(equalTo: uploadButton.centerYAnchor),
+            loadingIndicator.leadingAnchor.constraint(equalTo: uploadButton.leadingAnchor, constant: 10)
+        ])
 
         NSLayoutConstraint.activate([
             playButton.centerXAnchor.constraint(equalTo: view.centerXAnchor, constant: -120),
@@ -205,15 +219,14 @@ class PostViewController: UIViewController, UIImagePickerControllerDelegate, UIN
             return
         }
         
-        // Show loading indicator
-        let loadingIndicator = UIActivityIndicatorView(style: .large)
-        loadingIndicator.center = view.center
-        loadingIndicator.startAnimating()
-        view.addSubview(loadingIndicator)
+        // Update upload button appearance
+        uploadButton.setTitle("  Uploading...", for: .normal) // Add space for indicator
         uploadButton.isEnabled = false
+        uploadButton.backgroundColor = .systemGray
+        loadingIndicator.startAnimating()
         
         // Step 1: Get the S3 upload URL
-        let urlString = "https://5152-69-212-112-109.ngrok-free.app/s3url"
+        let urlString = "https://58fa-69-212-112-109.ngrok-free.app/s3url"
         guard let url = URL(string: urlString) else {
             showAlert(message: "Invalid URL")
             return
@@ -224,16 +237,14 @@ class PostViewController: UIViewController, UIImagePickerControllerDelegate, UIN
             
             DispatchQueue.main.async {
                 if let error = error {
-                    loadingIndicator.removeFromSuperview()
-                    self.uploadButton.isEnabled = true
+                    self.resetUploadButton()
                     self.showAlert(message: "Failed to get upload URL: \(error.localizedDescription)")
                     return
                 }
                 
                 guard let data = data,
                       let s3Response = try? JSONDecoder().decode(S3UploadResponse.self, from: data) else {
-                    loadingIndicator.removeFromSuperview()
-                    self.uploadButton.isEnabled = true
+                    self.resetUploadButton()
                     self.showAlert(message: "Failed to parse response")
                     return
                 }
@@ -241,12 +252,28 @@ class PostViewController: UIViewController, UIImagePickerControllerDelegate, UIN
                 // Step 2: Upload the video to S3
                 self.uploadToS3(videoURL: videoURL, uploadURL: s3Response.uploadURL) { result in
                     DispatchQueue.main.async {
-                        loadingIndicator.removeFromSuperview()
-                        self.uploadButton.isEnabled = true
+                        self.resetUploadButton()
                         
                         switch result {
                         case .success(let publicURL):
-                            self.showAlert(message: "Upload successful!\nPublic URL: \(publicURL)")
+                            // First query creator info
+                            
+                            self.queryCreatorInfo { result in
+                                switch result {
+                                case .success(_):
+                                    // If creator info query succeeds, proceed with TikTok upload
+                                    self.uploadToTikTok(videoURL: publicURL) { result in
+                                        switch result {
+                                        case .success(let message):
+                                            self.showAlert(message: "Upload successful!\nTikTok: \(message)")
+                                        case .failure(let error):
+                                            self.showAlert(message: "TikTok upload failed: \(error.localizedDescription)")
+                                        }
+                                    }
+                                case .failure(let error):
+                                    self.showAlert(message: "Creator info query failed: \(error.localizedDescription)")
+                                }
+                            }
                         case .failure(let error):
                             self.showAlert(message: "Upload failed: \(error.localizedDescription)")
                         }
@@ -277,7 +304,16 @@ class PostViewController: UIViewController, UIImagePickerControllerDelegate, UIN
                 }
                 
                 if let publicURL = uploadURL.components(separatedBy: "?").first {
-                    completion(.success(publicURL))
+                    let originalURL = "https://egr-demo-bucket.s3.amazonaws.com/1bd2278d-7765-44ad-a455-f19dd776c96b.mp4"
+                    let newDomain = "https://egr-demo-bucket.s3.us-east-1.amazonaws.com"
+
+                    if let range = originalURL.range(of: "https://egr-demo-bucket.s3.amazonaws.com") {
+                        let updatedURL = originalURL.replacingCharacters(in: range, with: newDomain)
+                        completion(.success(updatedURL))
+                    } else {
+                        print("Original domain not found in URL")
+                    }
+                    
                 } else {
                     completion(.failure(NSError(domain: "", code: -1, userInfo: [NSLocalizedDescriptionKey: "Failed to generate public URL"])))
                 }
@@ -287,6 +323,14 @@ class PostViewController: UIViewController, UIImagePickerControllerDelegate, UIN
         } catch {
             completion(.failure(error))
         }
+    }
+    
+    // Add helper method to reset upload button
+    private func resetUploadButton() {
+        uploadButton.setTitle("Upload", for: .normal)
+        uploadButton.isEnabled = true
+        uploadButton.backgroundColor = .systemGreen
+        loadingIndicator.stopAnimating()
     }
     
     private func showAlert(message: String) {
@@ -304,6 +348,178 @@ class PostViewController: UIViewController, UIImagePickerControllerDelegate, UIN
 
     deinit {
         videoPreviewView?.removeObserver(self, forKeyPath: "bounds")
+    }
+
+    // First, add this struct for the TikTok request
+    struct TikTokUploadRequest: Encodable {
+        let sourceInfo: SourceInfo
+        let postInfo: PostInfo
+        
+        enum CodingKeys: String, CodingKey {
+            case sourceInfo = "source_info"
+            case postInfo = "post_info"
+        }
+        
+        struct SourceInfo: Encodable {
+            let videoUrl: String
+            let source: String
+            
+            enum CodingKeys: String, CodingKey {
+                case videoUrl = "video_url"
+                case source
+            }
+        }
+        
+        struct PostInfo: Encodable {
+            let privacyLevel: String
+            let disableComment: Bool
+            let title: String
+            let videoCoverTimestampMs: Int
+            let disableStitch: Bool
+            let disableDuet: Bool
+            
+            enum CodingKeys: String, CodingKey {
+                case privacyLevel = "privacy_level"
+                case disableComment = "disable_comment"
+                case title
+                case videoCoverTimestampMs = "video_cover_timestamp_ms"
+                case disableStitch = "disable_stitch"
+                case disableDuet = "disable_duet"
+            }
+        }
+    }
+
+    // Then modify the success case in uploadToS3 completion handler:
+    private func uploadToTikTok(videoURL: String, completion: @escaping (Result<String, Error>) -> Void) {
+        self.showAlert(message: "Upload successful!\nPublic URL: \(videoURL)")
+        let tiktokUploadURL = "https://open.tiktokapis.com/v2/post/publish/video/init/"
+        guard let url = URL(string: tiktokUploadURL) else {
+            completion(.failure(NSError(domain: "", code: -1, userInfo: [NSLocalizedDescriptionKey: "Invalid TikTok API URL"])))
+            return
+        }
+        
+        // Get access token from UserDefaults
+        guard let accessToken = UserDefaults.standard.string(forKey: "TikTokAccessToken") else {
+            completion(.failure(NSError(domain: "", code: -1, userInfo: [NSLocalizedDescriptionKey: "No access token found"])))
+            return
+        }
+        
+        // Create request body
+        let requestBody = TikTokUploadRequest(
+            sourceInfo: .init(
+                videoUrl: videoURL,
+                source: "PULL_FROM_URL"
+            ),
+            postInfo: .init(
+                privacyLevel: "SELF_ONLY",
+                disableComment: true,
+                title: "Video uploaded via TikTok API #fyp",
+                videoCoverTimestampMs: 1000,
+                disableStitch: false,
+                disableDuet: false
+            )
+        )
+        
+        // Create request
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json; charset=UTF-8", forHTTPHeaderField: "Content-Type")
+        request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
+        
+        // Encode request body
+        do {
+            request.httpBody = try JSONEncoder().encode(requestBody)
+        } catch {
+            completion(.failure(error))
+            return
+        }
+        
+        // Make request
+        let task = URLSession.shared.dataTask(with: request) { (data, response, error) in
+            if let error = error {
+                DispatchQueue.main.async {
+                    completion(.failure(error))
+                }
+                return
+            }
+            
+            // Handle response
+            if let httpResponse = response as? HTTPURLResponse {
+                let message = "Status: \(httpResponse.statusCode)"
+                DispatchQueue.main.async {
+                    if (200...299).contains(httpResponse.statusCode) {
+                        completion(.success(message))
+                    } else {
+                        let error = NSError(domain: "", code: httpResponse.statusCode, userInfo: [NSLocalizedDescriptionKey: "TikTok API error: \(message)"])
+                        completion(.failure(error))
+                    }
+                }
+            }
+        }
+        task.resume()
+    }
+
+    // Add this struct for the creator info response
+    struct CreatorInfoResponse: Decodable {
+        // Add properties based on the response you expect
+        // This is a placeholder structure
+        let status: String?
+    }
+
+    // Add the query creator info method
+    private func queryCreatorInfo(completion: @escaping (Result<CreatorInfoResponse, Error>) -> Void) {
+        let creatorInfoURL = "https://open.tiktokapis.com/v2/post/publish/creator_info/query/"
+        guard let url = URL(string: creatorInfoURL) else {
+            completion(.failure(NSError(domain: "", code: -1, userInfo: [NSLocalizedDescriptionKey: "Invalid creator info URL"])))
+            return
+        }
+        
+        // Get access token from UserDefaults
+        guard let accessToken = UserDefaults.standard.string(forKey: "TikTokAccessToken") else {
+            completion(.failure(NSError(domain: "", code: -1, userInfo: [NSLocalizedDescriptionKey: "No access token found"])))
+            return
+        }
+        
+        // Create request
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json; charset=UTF-8", forHTTPHeaderField: "Content-Type")
+        request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
+        
+        // Make request
+        let task = URLSession.shared.dataTask(with: request) { (data, response, error) in
+            if let error = error {
+                DispatchQueue.main.async {
+                    completion(.failure(error))
+                }
+                return
+            }
+            
+            // Handle response
+            if let httpResponse = response as? HTTPURLResponse {
+                if (200...299).contains(httpResponse.statusCode) {
+                    if let data = data {
+                        do {
+                            let response = try JSONDecoder().decode(CreatorInfoResponse.self, from: data)
+                            DispatchQueue.main.async {
+                                completion(.success(response))
+                            }
+                        } catch {
+                            DispatchQueue.main.async {
+                                completion(.failure(error))
+                            }
+                        }
+                    }
+                } else {
+                    let error = NSError(domain: "", code: httpResponse.statusCode, 
+                                      userInfo: [NSLocalizedDescriptionKey: "Creator info API error: Status \(httpResponse.statusCode)"])
+                    DispatchQueue.main.async {
+                        completion(.failure(error))
+                    }
+                }
+            }
+        }
+        task.resume()
     }
 }
 
