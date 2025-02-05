@@ -304,7 +304,7 @@ class PostViewController: UIViewController, UIImagePickerControllerDelegate, UIN
                 }
                 
                 if let publicURL = uploadURL.components(separatedBy: "?").first {
-                    let originalURL = "https://egr-demo-bucket.s3.amazonaws.com/1bd2278d-7765-44ad-a455-f19dd776c96b.mp4"
+                    let originalURL = publicURL
                     let newDomain = "https://egr-demo-bucket.s3.us-east-1.amazonaws.com"
 
                     if let range = originalURL.range(of: "https://egr-demo-bucket.s3.amazonaws.com") {
