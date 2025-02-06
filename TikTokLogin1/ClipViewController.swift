@@ -252,7 +252,7 @@ class ClipViewController: UIViewController, UIImagePickerControllerDelegate, UIN
                             DispatchQueue.main.async {
                                 switch result {
                                 case .success(let publicURL):
-                                    self.showAlert(message: "Audio uploaded successfully! URL: \(publicURL)")
+                                    self.showAlert(message: "Audio uploaded successfully! Sent to Deepgram to transcribe.")
                                 case .failure(let error):
                                     self.showAlert(message: "Upload failed: \(error.localizedDescription)")
                                 }
@@ -365,7 +365,15 @@ class ClipViewController: UIViewController, UIImagePickerControllerDelegate, UIN
 
                     if let range = originalURL.range(of: "https://egr-demo-bucket.s3.amazonaws.com") {
                         let updatedURL = originalURL.replacingCharacters(in: range, with: newDomain)
-                        completion(.success(updatedURL))
+                        // Call transcribe API after successful upload
+                        self.transcribeAudio(audioUrl: updatedURL) { result in
+                            switch result {
+                            case .success:
+                                completion(.success(updatedURL))
+                            case .failure(let error):
+                                completion(.failure(error))
+                            }
+                        }
                     } else {
                         print("Original domain not found in URL")
                     }
@@ -379,6 +387,33 @@ class ClipViewController: UIViewController, UIImagePickerControllerDelegate, UIN
         } catch {
             completion(.failure(error))
         }
+    }
+    
+    // Add new method for transcription
+    private func transcribeAudio(audioUrl: String, completion: @escaping (Result<Void, Error>) -> Void) {
+        guard let encodedAudioUrl = audioUrl.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
+              let url = URL(string: "https://tiltvc.ngrok.app/transcribe?audioUrl=\(encodedAudioUrl)") else {
+            completion(.failure(NSError(domain: "", code: -1, userInfo: [NSLocalizedDescriptionKey: "Invalid transcribe URL"])))
+            return
+        }
+        
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        
+        let task = URLSession.shared.dataTask(with: request) { data, response, error in
+            if let error = error {
+                completion(.failure(error))
+                return
+            }
+            
+            if let httpResponse = response as? HTTPURLResponse,
+               (200...299).contains(httpResponse.statusCode) {
+                completion(.success(()))
+            } else {
+                completion(.failure(NSError(domain: "", code: -1, userInfo: [NSLocalizedDescriptionKey: "Transcription request failed"])))
+            }
+        }
+        task.resume()
     }
     
     // Add helper method to reset upload button
