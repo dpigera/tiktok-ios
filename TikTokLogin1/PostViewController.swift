@@ -226,7 +226,7 @@ class PostViewController: UIViewController, UIImagePickerControllerDelegate, UIN
         loadingIndicator.startAnimating()
         
         // Step 1: Get the S3 upload URL
-        let urlString = "https://58fa-69-212-112-109.ngrok-free.app/s3url"
+        let urlString = "https://tiltvc.ngrok.app/s3url"
         guard let url = URL(string: urlString) else {
             showAlert(message: "Invalid URL")
             return

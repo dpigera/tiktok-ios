@@ -237,42 +237,147 @@ class ClipViewController: UIViewController, UIImagePickerControllerDelegate, UIN
         uploadButton.backgroundColor = .gray
         loadingIndicator.startAnimating()
         
-        // Define time ranges for clips with descriptions
-        let timeRanges = [
-            CMTimeRange(start: CMTime(seconds: 2.3, preferredTimescale: 600),
-                       end: CMTime(seconds: 17.0, preferredTimescale: 600)),
-            CMTimeRange(start: CMTime(seconds: 21.35, preferredTimescale: 600),
-                       end: CMTime(seconds: 29.26, preferredTimescale: 600)),
-            // CMTimeRange(start: CMTime(seconds: 53.35, preferredTimescale: 600),
-            //            end: CMTime(seconds: 61.72, preferredTimescale: 600)),
-            // CMTimeRange(start: CMTime(seconds: 71.60, preferredTimescale: 600),
-            //            end: CMTime(seconds: 83.78, preferredTimescale: 600)),
-            // CMTimeRange(start: CMTime(seconds: 86.92, preferredTimescale: 600),
-            //            end: CMTime(seconds: 96.40, preferredTimescale: 600))
-        ]
-        
-        // Process video
-        videoProcessor.clipAndStitchVideo(from: videoURL, timeRanges: timeRanges) { [weak self] result in
+        // First extract audio
+        extractAudio(from: videoURL) { [weak self] result in
             guard let self = self else { return }
             
-            DispatchQueue.main.async {
-                switch result {
-                case .success(let processedVideoURL):
-                    // Stop current playback if any
-                    self.player?.pause()
-                    self.player = nil
-                    self.playerLayer?.removeFromSuperlayer()
-                    
-                    // Update video preview with processed video
-                    self.setupVideoPlayer(with: processedVideoURL)
-                    self.showAlert(message: "Video processing completed!")
-                    
-                case .failure(let error):
-                    print("Processing error: \(error)")
-                    self.showAlert(message: "Video processing failed: \(error.localizedDescription)")
+            switch result {
+            case .success(let audioURL):
+                // Get S3 upload URL
+                self.getS3UploadURL { result in
+                    switch result {
+                    case .success(let uploadURL):
+                        // Upload audio file to S3
+                        self.uploadAudioToS3(audioURL: audioURL, uploadURL: uploadURL.absoluteString) { result in
+                            DispatchQueue.main.async {
+                                switch result {
+                                case .success(let publicURL):
+                                    self.showAlert(message: "Audio uploaded successfully! URL: \(publicURL)")
+                                case .failure(let error):
+                                    self.showAlert(message: "Upload failed: \(error.localizedDescription)")
+                                }
+                                self.resetUploadButton()
+                            }
+                        }
+                    case .failure(let error):
+                        DispatchQueue.main.async {
+                            self.showAlert(message: "Failed to get upload URL: \(error.localizedDescription)")
+                            self.resetUploadButton()
+                        }
+                    }
                 }
-                self.resetUploadButton()
+            case .failure(let error):
+                DispatchQueue.main.async {
+                    self.showAlert(message: "Audio extraction failed: \(error.localizedDescription)")
+                    self.resetUploadButton()
+                }
             }
+        }
+    }
+    
+    private func extractAudio(from videoURL: URL, completion: @escaping (Result<URL, Error>) -> Void) {
+        let asset = AVAsset(url: videoURL)
+        
+        guard let exportSession = AVAssetExportSession(
+            asset: asset,
+            presetName: AVAssetExportPresetAppleM4A
+        ) else {
+            completion(.failure(NSError(domain: "", code: -1, userInfo: [NSLocalizedDescriptionKey: "Could not create export session"])))
+            return
+        }
+        
+        let outputURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+            .appendingPathExtension("m4a")
+        
+        exportSession.outputURL = outputURL
+        exportSession.outputFileType = .m4a
+        exportSession.audioTimePitchAlgorithm = .spectral
+        
+        exportSession.exportAsynchronously {
+            switch exportSession.status {
+            case .completed:
+                completion(.success(outputURL))
+            case .failed:
+                completion(.failure(exportSession.error ?? NSError(domain: "", code: -1, userInfo: [NSLocalizedDescriptionKey: "Export failed"])))
+            default:
+                completion(.failure(NSError(domain: "", code: -1, userInfo: [NSLocalizedDescriptionKey: "Export cancelled"])))
+            }
+        }
+    }
+    
+    private func getS3UploadURL(completion: @escaping (Result<URL, Error>) -> Void) {
+        guard let url = URL(string: "https://tiltvc.ngrok.app/s3url") else {
+            completion(.failure(NSError(domain: "", code: -1, userInfo: [NSLocalizedDescriptionKey: "Invalid URL"])))
+            return
+        }
+        
+        print("Requesting S3 URL from: \(url.absoluteString)")
+        
+        let task = URLSession.shared.dataTask(with: url) { data, response, error in
+            if let error = error {
+                print("S3 URL request error: \(error.localizedDescription)")
+                completion(.failure(error))
+                return
+            }
+            
+            if let data = data, let responseString = String(data: data, encoding: .utf8) {
+                print("S3 URL response: \(responseString)")
+            }
+            
+            guard let data = data,
+                  let json = try? JSONSerialization.jsonObject(with: data) as? [String: String],
+                  let uploadURLString = json["uploadURL"],
+                  let uploadURL = URL(string: uploadURLString) else {
+                print("Failed to parse S3 URL response")
+                completion(.failure(NSError(domain: "", code: -1, userInfo: [NSLocalizedDescriptionKey: "Invalid response"])))
+                return
+            }
+            
+            print("Got S3 upload URL: \(uploadURL.absoluteString)")
+            completion(.success(uploadURL))
+        }
+        task.resume()
+    }
+    
+    private func uploadAudioToS3(audioURL: URL, uploadURL: String, completion: @escaping (Result<String, Error>) -> Void) {
+        guard let url = URL(string: uploadURL) else {
+            completion(.failure(NSError(domain: "", code: -1, userInfo: [NSLocalizedDescriptionKey: "Invalid upload URL"])))
+            return
+        }
+        
+        do {
+            let videoData = try Data(contentsOf: audioURL)
+            
+            var request = URLRequest(url: url)
+            request.httpMethod = "PUT"
+            request.setValue("video/mp4", forHTTPHeaderField: "Content-Type")
+            
+            let task = URLSession.shared.uploadTask(with: request, from: videoData) { (data, response, error) in
+                if let error = error {
+                    completion(.failure(error))
+                    return
+                }
+                
+                if let publicURL = uploadURL.components(separatedBy: "?").first {
+                    let originalURL = publicURL
+                    let newDomain = "https://egr-demo-bucket.s3.us-east-1.amazonaws.com"
+
+                    if let range = originalURL.range(of: "https://egr-demo-bucket.s3.amazonaws.com") {
+                        let updatedURL = originalURL.replacingCharacters(in: range, with: newDomain)
+                        completion(.success(updatedURL))
+                    } else {
+                        print("Original domain not found in URL")
+                    }
+                    
+                } else {
+                    completion(.failure(NSError(domain: "", code: -1, userInfo: [NSLocalizedDescriptionKey: "Failed to generate public URL"])))
+                }
+            }
+            task.resume()
+            
+        } catch {
+            completion(.failure(error))
         }
     }
     
