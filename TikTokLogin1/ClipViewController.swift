@@ -244,11 +244,11 @@ class ClipViewController: UIViewController, UIImagePickerControllerDelegate, UIN
             switch result {
             case .success(let audioURL):
                 // Get S3 upload URL
-                self.getS3UploadURL { result in
+                self.getS3UploadURL(contentType: "audio/m4a") { result in
                     switch result {
                     case .success(let uploadURL):
                         // Upload audio file to S3
-                        self.uploadAudioToS3(audioURL: audioURL, uploadURL: uploadURL.absoluteString) { result in
+                        self.uploadAudioToS3(audioURL: audioURL, uploadURL: uploadURL) { result in
                             DispatchQueue.main.async {
                                 switch result {
                                 case .success(let publicURL):
@@ -306,19 +306,34 @@ class ClipViewController: UIViewController, UIImagePickerControllerDelegate, UIN
         }
     }
     
-    private func getS3UploadURL(completion: @escaping (Result<URL, Error>) -> Void) {
-        guard let url = URL(string: "https://tiltvc.ngrok.app/s3url") else {
+    private func getS3UploadURL(contentType: String, completion: @escaping (Result<String, Error>) -> Void) {
+        guard var components = URLComponents(string: "https://tiltvc.ngrok.app/s3url") else {
+            completion(.failure(NSError(domain: "", code: -1, userInfo: [NSLocalizedDescriptionKey: "Invalid URL"])))
+            return
+        }
+        
+        // Add content-type as query parameter
+        components.queryItems = [URLQueryItem(name: "contentType", value: contentType)]
+        
+        guard let url = components.url else {
             completion(.failure(NSError(domain: "", code: -1, userInfo: [NSLocalizedDescriptionKey: "Invalid URL"])))
             return
         }
         
         print("Requesting S3 URL from: \(url.absoluteString)")
         
-        let task = URLSession.shared.dataTask(with: url) { data, response, error in
+        var request = URLRequest(url: url)
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        
+        let task = URLSession.shared.dataTask(with: request) { data, response, error in
             if let error = error {
                 print("S3 URL request error: \(error.localizedDescription)")
                 completion(.failure(error))
                 return
+            }
+            
+            if let httpResponse = response as? HTTPURLResponse {
+                print("S3 URL response status: \(httpResponse.statusCode)")
             }
             
             if let data = data, let responseString = String(data: data, encoding: .utf8) {
@@ -327,15 +342,14 @@ class ClipViewController: UIViewController, UIImagePickerControllerDelegate, UIN
             
             guard let data = data,
                   let json = try? JSONSerialization.jsonObject(with: data) as? [String: String],
-                  let uploadURLString = json["uploadURL"],
-                  let uploadURL = URL(string: uploadURLString) else {
+                  let uploadURLString = json["uploadURL"] else {
                 print("Failed to parse S3 URL response")
                 completion(.failure(NSError(domain: "", code: -1, userInfo: [NSLocalizedDescriptionKey: "Invalid response"])))
                 return
             }
             
-            print("Got S3 upload URL: \(uploadURL.absoluteString)")
-            completion(.success(uploadURL))
+            print("Got S3 upload URL: \(uploadURLString)")
+            completion(.success(uploadURLString))
         }
         task.resume()
     }
@@ -347,7 +361,80 @@ class ClipViewController: UIViewController, UIImagePickerControllerDelegate, UIN
         }
         
         do {
-            let videoData = try Data(contentsOf: audioURL)
+            let audioData = try Data(contentsOf: audioURL)
+            
+            var request = URLRequest(url: url)
+            request.httpMethod = "PUT"
+            request.setValue("audio/m4a", forHTTPHeaderField: "Content-Type")  // Changed to audio/m4a
+            
+            let task = URLSession.shared.uploadTask(with: request, from: audioData) { [weak self] (data, response, error) in
+                guard let self = self else { return }
+                
+                if let error = error {
+                    completion(.failure(error))
+                    return
+                }
+                
+                if let publicURL = uploadURL.components(separatedBy: "?").first {
+                    let originalURL = publicURL
+                    let newDomain = "https://egr-demo-bucket.s3.us-east-1.amazonaws.com"
+
+                    if let range = originalURL.range(of: "https://egr-demo-bucket.s3.amazonaws.com") {
+                        let updatedAudioURL = originalURL.replacingCharacters(in: range, with: newDomain)
+                        
+                        // Now upload the video file
+                        guard let videoURL = self.selectedVideoURL else {
+                            completion(.failure(NSError(domain: "", code: -1, userInfo: [NSLocalizedDescriptionKey: "No video URL"])))
+                            return
+                        }
+                        
+                        // Get another S3 URL for video upload
+                        self.getS3UploadURL(contentType: "video/mp4") { result in
+                            switch result {
+                            case .success(let videoUploadURL):
+                                self.uploadVideoToS3(videoURL: videoURL, uploadURL: videoUploadURL) { result in
+                                    switch result {
+                                    case .success(let updatedVideoURL):
+                                        // Now call transcribe with both URLs
+                                        self.transcribeAudio(audioUrl: updatedAudioURL, videoUrl: updatedVideoURL) { result in
+                                            switch result {
+                                            case .success:
+                                                completion(.success(updatedAudioURL))
+                                            case .failure(let error):
+                                                completion(.failure(error))
+                                            }
+                                        }
+                                    case .failure(let error):
+                                        completion(.failure(error))
+                                    }
+                                }
+                            case .failure(let error):
+                                completion(.failure(error))
+                            }
+                        }
+                    } else {
+                        print("Original domain not found in URL")
+                    }
+                } else {
+                    completion(.failure(NSError(domain: "", code: -1, userInfo: [NSLocalizedDescriptionKey: "Failed to generate public URL"])))
+                }
+            }
+            task.resume()
+            
+        } catch {
+            completion(.failure(error))
+        }
+    }
+    
+    // Add new method for video upload
+    private func uploadVideoToS3(videoURL: URL, uploadURL: String, completion: @escaping (Result<String, Error>) -> Void) {
+        guard let url = URL(string: uploadURL) else {
+            completion(.failure(NSError(domain: "", code: -1, userInfo: [NSLocalizedDescriptionKey: "Invalid upload URL"])))
+            return
+        }
+        
+        do {
+            let videoData = try Data(contentsOf: videoURL)
             
             var request = URLRequest(url: url)
             request.httpMethod = "PUT"
@@ -365,19 +452,11 @@ class ClipViewController: UIViewController, UIImagePickerControllerDelegate, UIN
 
                     if let range = originalURL.range(of: "https://egr-demo-bucket.s3.amazonaws.com") {
                         let updatedURL = originalURL.replacingCharacters(in: range, with: newDomain)
-                        // Call transcribe API after successful upload
-                        self.transcribeAudio(audioUrl: updatedURL) { result in
-                            switch result {
-                            case .success:
-                                completion(.success(updatedURL))
-                            case .failure(let error):
-                                completion(.failure(error))
-                            }
-                        }
+                        completion(.success(updatedURL))
                     } else {
                         print("Original domain not found in URL")
+                        completion(.failure(NSError(domain: "", code: -1, userInfo: [NSLocalizedDescriptionKey: "Failed to update domain"])))
                     }
-                    
                 } else {
                     completion(.failure(NSError(domain: "", code: -1, userInfo: [NSLocalizedDescriptionKey: "Failed to generate public URL"])))
                 }
@@ -389,28 +468,39 @@ class ClipViewController: UIViewController, UIImagePickerControllerDelegate, UIN
         }
     }
     
-    // Add new method for transcription
-    private func transcribeAudio(audioUrl: String, completion: @escaping (Result<Void, Error>) -> Void) {
+    // Update transcribe method to accept both URLs
+    private func transcribeAudio(audioUrl: String, videoUrl: String, completion: @escaping (Result<Void, Error>) -> Void) {
         guard let encodedAudioUrl = audioUrl.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
-              let url = URL(string: "https://tiltvc.ngrok.app/transcribe?audioUrl=\(encodedAudioUrl)") else {
+              let encodedVideoUrl = videoUrl.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
+              let url = URL(string: "https://tiltvc.ngrok.app/transcribe?audioUrl=\(encodedAudioUrl)&videoUrl=\(encodedVideoUrl)") else {
             completion(.failure(NSError(domain: "", code: -1, userInfo: [NSLocalizedDescriptionKey: "Invalid transcribe URL"])))
             return
         }
+        
+        print("Transcribe request URL: \(url.absoluteString)")
         
         var request = URLRequest(url: url)
         request.httpMethod = "GET"
         
         let task = URLSession.shared.dataTask(with: request) { data, response, error in
             if let error = error {
+                print("Transcribe error: \(error.localizedDescription)")
                 completion(.failure(error))
                 return
             }
             
-            if let httpResponse = response as? HTTPURLResponse,
-               (200...299).contains(httpResponse.statusCode) {
-                completion(.success(()))
+            if let httpResponse = response as? HTTPURLResponse {
+                print("Transcribe response status: \(httpResponse.statusCode)")
+                if (200...299).contains(httpResponse.statusCode) {
+                    completion(.success(()))
+                } else {
+                    if let data = data, let responseString = String(data: data, encoding: .utf8) {
+                        print("Transcribe error response: \(responseString)")
+                    }
+                    completion(.failure(NSError(domain: "", code: -1, userInfo: [NSLocalizedDescriptionKey: "Transcription request failed"])))
+                }
             } else {
-                completion(.failure(NSError(domain: "", code: -1, userInfo: [NSLocalizedDescriptionKey: "Transcription request failed"])))
+                completion(.failure(NSError(domain: "", code: -1, userInfo: [NSLocalizedDescriptionKey: "Invalid response"])))
             }
         }
         task.resume()
