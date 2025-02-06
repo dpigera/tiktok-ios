@@ -122,8 +122,11 @@ class RootViewController: UIViewController {
     
     @objc private func postReel() {
         print("Post Reel button tapped!") // Replace with your actual functionality
-        let postVC = PostViewController()
-        navigationController?.pushViewController(postVC, animated: true)
+//        let postVC = PostViewController()
+//        navigationController?.pushViewController(postVC, animated: true)
+        
+        let clipVC = ClipViewController()
+        navigationController?.pushViewController(clipVC, animated: true)
     }
     
     @objc private func logout() {

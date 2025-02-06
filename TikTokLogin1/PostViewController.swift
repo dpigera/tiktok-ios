@@ -256,12 +256,11 @@ class PostViewController: UIViewController, UIImagePickerControllerDelegate, UIN
                         
                         switch result {
                         case .success(let publicURL):
-                            // First query creator info
-                            
+                            // Step 3: First query creator info
                             self.queryCreatorInfo { result in
                                 switch result {
                                 case .success(_):
-                                    // If creator info query succeeds, proceed with TikTok upload
+                                    // Step 4: If creator info query succeeds, proceed with TikTok upload
                                     self.uploadToTikTok(videoURL: publicURL) { result in
                                         switch result {
                                         case .success(let message):
@@ -284,6 +283,7 @@ class PostViewController: UIViewController, UIImagePickerControllerDelegate, UIN
         task.resume()
     }
     
+    // upload to S3
     private func uploadToS3(videoURL: URL, uploadURL: String, completion: @escaping (Result<String, Error>) -> Void) {
         guard let url = URL(string: uploadURL) else {
             completion(.failure(NSError(domain: "", code: -1, userInfo: [NSLocalizedDescriptionKey: "Invalid upload URL"])))
